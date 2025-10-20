@@ -112,6 +112,10 @@ def analyze_meal_from_image(description: str, image_bytes: bytes) -> MealAnalysi
     settings = get_settings()
     client = OpenAI(api_key=settings.openai_api_key)
     image_b64 = _image_to_base64(image_bytes)
+    prompt_text = (
+        (description.strip() + "\n\n" if description else "")
+        + "Respond with a strict JSON object containing calories, protein, fat, carbs, notes, and ingredient items."
+    )
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
@@ -124,7 +128,7 @@ def analyze_meal_from_image(description: str, image_bytes: bytes) -> MealAnalysi
                 "content": [
                     {
                         "type": "text",
-                        "text": description or "Please estimate calories and macros for this meal.",
+                        "text": prompt_text,
                     },
                     {
                         "type": "image_url",
