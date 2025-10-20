@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS day_logs (
     total_protein REAL NOT NULL DEFAULT 0,
     total_fat REAL NOT NULL DEFAULT 0,
     total_carbs REAL NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'closed',
     UNIQUE(telegram_id, day),
     FOREIGN KEY (telegram_id) REFERENCES users(telegram_id)
 );
@@ -88,6 +89,7 @@ class Storage:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.executescript("\n".join([CREATE_USERS, CREATE_DAY_LOGS, CREATE_MEALS]))
+            self._ensure_day_status_column(conn)
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -98,6 +100,11 @@ class Storage:
             conn.commit()
         finally:
             conn.close()
+
+    def _ensure_day_status_column(self, conn: sqlite3.Connection) -> None:
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(day_logs)")}
+        if "status" not in columns:
+            conn.execute("ALTER TABLE day_logs ADD COLUMN status TEXT NOT NULL DEFAULT 'closed'")
 
     def get_user(self, telegram_id: int) -> Optional[User]:
         with self._connect() as conn:
@@ -172,10 +179,50 @@ class Storage:
             if row:
                 return int(row["id"])
             cursor = conn.execute(
-                "INSERT INTO day_logs (telegram_id, day) VALUES (?, ?)",
+                "INSERT INTO day_logs (telegram_id, day, status) VALUES (?, ?, 'closed')",
                 (telegram_id, day_str),
             )
             return int(cursor.lastrowid)
+
+    def set_active_day(self, telegram_id: int, log_date: date) -> int:
+        day_str = log_date.isoformat()
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT id FROM day_logs WHERE telegram_id=? AND day=?",
+                (telegram_id, day_str),
+            ).fetchone()
+            if row:
+                day_log_id = int(row["id"])
+                conn.execute("UPDATE day_logs SET status='active' WHERE id=?", (day_log_id,))
+            else:
+                cursor = conn.execute(
+                    "INSERT INTO day_logs (telegram_id, day, status) VALUES (?, ?, 'active')",
+                    (telegram_id, day_str),
+                )
+                day_log_id = int(cursor.lastrowid)
+            conn.execute(
+                "UPDATE day_logs SET status='closed' WHERE telegram_id=? AND id<>?",
+                (telegram_id, day_log_id),
+            )
+            return day_log_id
+
+    def get_active_day(self, telegram_id: int) -> Optional[dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT id, day FROM day_logs WHERE telegram_id=? AND status='active' ORDER BY day DESC LIMIT 1",
+                (telegram_id,),
+            ).fetchone()
+            if not row:
+                return None
+            return {"id": int(row["id"]), "day": date.fromisoformat(row["day"])}
+
+    def close_day(self, telegram_id: int, log_date: date) -> None:
+        day_str = log_date.isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE day_logs SET status='closed' WHERE telegram_id=? AND day=?",
+                (telegram_id, day_str),
+            )
 
     def add_meal_entry(
         self,

@@ -47,29 +47,30 @@ class MealAnalysis:
 
 
 PROMPT_TEMPLATE = """
-You are a nutrition expert helping people log their calorie intake.
-Based on the user's description, estimate total calories, protein, fat and carbs (in grams).
-Respond with valid json containing keys: calories, protein, fat, carbs, notes, items (list of ingredient dicts with name, calories, protein, fat, carbs).
-If some values are unknown, provide best estimate and mention assumptions in notes.
-Description: {description}
+Ты — внимательный нутрициолог, который ведёт дружелюбный дневник питания клиента.
+Проанализируй описание блюда и оцени общую калорийность, белки, жиры и углеводы (в граммах).
+Ответь строго в формате JSON с ключами: calories, protein, fat, carbs, notes, items (массив объектов с полями name, calories, protein, fat, carbs).
+В поле notes сначала коротко опиши блюдо или набор продуктов, затем добавь рекомендации или важные уточнения.
+Если каких-то данных нет, сделай аккуратную оценку и расскажи об этом в notes.
+Описание пользователя: {description}
 """
 
 
 SUMMARY_PROMPT = """
-You are a nutrition coach.
-The user has a daily calorie target of {target_calories:.0f} kcal and macro targets:
-- Protein: {target_protein:.0f} g
-- Fat: {target_fat:.0f} g
-- Carbs: {target_carbs:.0f} g
+Ты — вдохновляющий нутрициолог и коуч здорового образа жизни.
+У клиента дневная цель {target_calories:.0f} ккал и ориентиры по макроэлементам:
+- Белки: {target_protein:.0f} г
+- Жиры: {target_fat:.0f} г
+- Углеводы: {target_carbs:.0f} г
 
-The user actually consumed:
-- Calories: {actual_calories:.0f} kcal
-- Protein: {actual_protein:.0f} g
-- Fat: {actual_fat:.0f} g
-- Carbs: {actual_carbs:.0f} g
+Фактически за день получено:
+- Калории: {actual_calories:.0f} ккал
+- Белки: {actual_protein:.0f} г
+- Жиры: {actual_fat:.0f} г
+- Углеводы: {actual_carbs:.0f} г
 
-Provide a short analysis (<= 120 words) and specific recommendations for tomorrow.
-Return a short json object with keys: summary, recommendations.
+Сформулируй короткий анализ (до 120 слов) и конкретные рекомендации на завтра.
+Верни JSON с ключами summary и recommendations. Пиши только по-русски.
 """
 
 
@@ -100,7 +101,9 @@ def analyze_meal_from_text(description: str) -> MealAnalysis:
         [
             {
                 "role": "system",
-                "content": "You are a helpful nutrition assistant. Always reply with strict json.",
+                "content": (
+                    "Ты — внимательный русскоязычный нутрициолог. Отвечай только строгим JSON без комментариев."
+                ),
             },
             {"role": "user", "content": PROMPT_TEMPLATE.format(description=description)},
         ]
@@ -114,14 +117,16 @@ def analyze_meal_from_image(description: str, image_bytes: bytes) -> MealAnalysi
     image_b64 = _image_to_base64(image_bytes)
     prompt_text = (
         (description.strip() + "\n\n" if description else "")
-        + "Respond with a strict JSON object containing calories, protein, fat, carbs, notes, and ingredient items."
+        + "Сформируй строгий JSON с полями calories, protein, fat, carbs, notes, items. В notes сначала опиши, что изображено на фото, затем добавь выводы."
     )
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {
                 "role": "system",
-                "content": "You are a helpful nutrition assistant interpreting meal photos. Always reply with strict json.",
+                "content": (
+                    "Ты — русскоязычный нутрициолог, который анализирует фото блюд. Всегда отвечай строгим JSON."
+                ),
             },
             {
                 "role": "user",
@@ -153,7 +158,12 @@ def request_day_summary(
 ) -> dict[str, Any]:
     payload = _chat_request(
         [
-            {"role": "system", "content": "You are a nutrition coach."},
+            {
+                "role": "system",
+                "content": (
+                    "Ты — поддерживающий русскоязычный нутрициолог. Говори только по-русски и возвращай строгий JSON."
+                ),
+            },
             {
                 "role": "user",
                 "content": SUMMARY_PROMPT.format(
