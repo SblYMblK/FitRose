@@ -49,7 +49,7 @@ class MealAnalysis:
 PROMPT_TEMPLATE = """
 You are a nutrition expert helping people log their calorie intake.
 Based on the user's description, estimate total calories, protein, fat and carbs (in grams).
-Respond with valid JSON containing keys: calories, protein, fat, carbs, notes, items (list of ingredient dicts with name, calories, protein, fat, carbs).
+Respond with valid json containing keys: calories, protein, fat, carbs, notes, items (list of ingredient dicts with name, calories, protein, fat, carbs).
 If some values are unknown, provide best estimate and mention assumptions in notes.
 Description: {description}
 """
@@ -69,7 +69,7 @@ The user actually consumed:
 - Carbs: {actual_carbs:.0f} g
 
 Provide a short analysis (<= 120 words) and specific recommendations for tomorrow.
-Return a short JSON object with keys: summary, recommendations.
+Return a short json object with keys: summary, recommendations.
 """
 
 
@@ -98,7 +98,10 @@ def _image_to_base64(file_content: bytes) -> str:
 def analyze_meal_from_text(description: str) -> MealAnalysis:
     payload = _chat_request(
         [
-            {"role": "system", "content": "You are a helpful nutrition assistant."},
+            {
+                "role": "system",
+                "content": "You are a helpful nutrition assistant. Always reply with strict json.",
+            },
             {"role": "user", "content": PROMPT_TEMPLATE.format(description=description)},
         ]
     )
@@ -114,7 +117,7 @@ def analyze_meal_from_image(description: str, image_bytes: bytes) -> MealAnalysi
         messages=[
             {
                 "role": "system",
-                "content": "You are a helpful nutrition assistant interpreting meal photos.",
+                "content": "You are a helpful nutrition assistant interpreting meal photos. Always reply with strict json.",
             },
             {
                 "role": "user",
