@@ -730,10 +730,21 @@ class CalorieBot:
                 f"— {label}: {meal['calories']:.0f} ккал (Б {meal['protein']:.0f} / Ж {meal['fat']:.0f} / У {meal['carbs']:.0f})"
             )
         lines.append("\n💡 *Рекомендации коуча:*")
-        lines.append(recommendations.get("summary", "Нет данных"))
+
+        summary_text = recommendations.get("summary", "Нет данных")
+        if isinstance(summary_text, list):
+            summary_text = "\n".join(str(item).strip() for item in summary_text if item)
+        else:
+            summary_text = str(summary_text).strip()
+        lines.append(summary_text or "Нет данных")
+
         extra = recommendations.get("recommendations", "")
-        if extra:
-            lines.append(extra)
+        if isinstance(extra, list):
+            extra_text = "\n".join(str(item).strip() for item in extra if item)
+        else:
+            extra_text = str(extra).strip()
+        if extra_text:
+            lines.append(extra_text)
         return "\n".join(lines)
 
     # ------------------------------------------------------------------

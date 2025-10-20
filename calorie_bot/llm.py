@@ -26,13 +26,33 @@ class MealAnalysis:
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "MealAnalysis":
+        raw_notes = payload.get("notes", "")
+        if isinstance(raw_notes, dict):
+            notes_parts = [
+                str(raw_notes.get("description", "")).strip(),
+                str(raw_notes.get("conclusions", "")).strip(),
+            ]
+            notes = "\n".join(part for part in notes_parts if part)
+        elif isinstance(raw_notes, list):
+            notes = "\n".join(str(part).strip() for part in raw_notes if part)
+        else:
+            notes = str(raw_notes).strip()
+
+        raw_items = payload.get("items", [])
+        if isinstance(raw_items, dict):
+            items: list[dict[str, Any]] = [raw_items]
+        elif isinstance(raw_items, list):
+            items = [item for item in raw_items if isinstance(item, dict)]
+        else:
+            items = []
+
         return cls(
-            calories=float(payload.get("calories", 0)),
-            protein=float(payload.get("protein", 0)),
-            fat=float(payload.get("fat", 0)),
-            carbs=float(payload.get("carbs", 0)),
-            notes=payload.get("notes", ""),
-            items=list(payload.get("items", [])),
+            calories=float(payload.get("calories", 0) or 0),
+            protein=float(payload.get("protein", 0) or 0),
+            fat=float(payload.get("fat", 0) or 0),
+            carbs=float(payload.get("carbs", 0) or 0),
+            notes=notes,
+            items=items,
         )
 
     def to_dict(self) -> dict[str, Any]:
