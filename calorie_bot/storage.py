@@ -10,7 +10,10 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Optional
 
-from .calculations import ActivityLevel, Goal, Sex, UserMetrics
+try:  # pragma: no cover - allow executing modules directly
+    from .calculations import ActivityLevel, Goal, Sex, UserMetrics
+except ImportError:  # pragma: no cover
+    from calculations import ActivityLevel, Goal, Sex, UserMetrics
 
 
 CREATE_USERS = """

@@ -9,7 +9,10 @@ from typing import Any, Iterable, Optional
 
 from openai import OpenAI
 
-from .config import get_settings
+try:  # pragma: no cover - support running without package context
+    from .config import get_settings
+except ImportError:  # pragma: no cover
+    from config import get_settings
 
 
 @dataclass(slots=True)

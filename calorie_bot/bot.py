@@ -26,10 +26,26 @@ from telegram.ext import (
     filters,
 )
 
-from .calculations import ActivityLevel, Goal, Sex, build_metrics
-from .config import get_settings
-from .llm import MealAnalysis, analyze_meal_from_image, analyze_meal_from_text, request_day_summary
-from .storage import Storage, User
+try:  # pragma: no cover - import fallback for running as a script
+    from .calculations import ActivityLevel, Goal, Sex, build_metrics
+    from .config import get_settings
+    from .llm import (
+        MealAnalysis,
+        analyze_meal_from_image,
+        analyze_meal_from_text,
+        request_day_summary,
+    )
+    from .storage import Storage, User
+except ImportError:  # pragma: no cover - allows "python bot.py" execution
+    from calculations import ActivityLevel, Goal, Sex, build_metrics
+    from config import get_settings
+    from llm import (
+        MealAnalysis,
+        analyze_meal_from_image,
+        analyze_meal_from_text,
+        request_day_summary,
+    )
+    from storage import Storage, User
 
 
 LOGGER = logging.getLogger(__name__)

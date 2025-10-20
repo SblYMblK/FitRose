@@ -14,6 +14,24 @@ FitRose Calorie Tracking Telegram Bot
 
 1. Установите зависимости из `requirements.txt`.
 2. Установите переменные окружения `TELEGRAM_TOKEN`, `OPENAI_API_KEY`, при необходимости `CALORIE_BOT_DB`.
+   Например, в Linux/MacOS вы можете выполнить:
+
+   ```bash
+   export TELEGRAM_TOKEN="ваш_токен_бота"
+   export OPENAI_API_KEY="ваш_api_ключ"
+   # необязательно, путь к базе
+   export CALORIE_BOT_DB="/полный/путь/к/calorie_bot.db"
+   ```
+
+   В Windows (PowerShell) используйте:
+
+   ```powershell
+   setx TELEGRAM_TOKEN "ваш_токен_бота"
+   setx OPENAI_API_KEY "ваш_api_ключ"
+   setx CALORIE_BOT_DB "C:\\path\\to\\calorie_bot.db"  # необязательно
+   ```
+
+   После установки переменных перезапустите терминал, чтобы новые значения применились.
 3. Запустите бота: `python -m calorie_bot.bot`.
 
 Основные команды бота
