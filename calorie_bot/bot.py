@@ -101,12 +101,12 @@ class CalorieBot:
     def __init__(self) -> None:
         settings = get_settings()
         self.storage = Storage(settings.database_path)
-        self.application = (
-            Application.builder()
-            .token(settings.telegram_token)
-            .rate_limiter(AIORateLimiter())
-            .build()
-        )
+        builder = Application.builder().token(settings.telegram_token)
+        try:
+            builder = builder.rate_limiter(AIORateLimiter())
+        except RuntimeError as exc:  # pragma: no cover - depends on optional dependency
+            LOGGER.warning("Rate limiter disabled: %s", exc)
+        self.application = builder.build()
         self._register_handlers()
 
     # ------------------------------------------------------------------
