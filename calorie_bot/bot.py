@@ -172,7 +172,7 @@ class CalorieBot:
         user = self._get_user(telegram_id)
         if user:
             await update.message.reply_text(
-                "С возвращением! Твоя фитоняшка FitRose уже машет помпончиками и ждёт новых побед.\n"
+                "С возвращением! Роза уже машет помпончиками и ждёт твоих новых побед.\n"
                 "Жми кнопки ниже или используй команды:\n"
                 "• /log_day — добавить приём пищи\n"
                 "• /finish_day — завершить день\n"
@@ -183,7 +183,7 @@ class CalorieBot:
             return ConversationHandler.END
 
         await update.message.reply_text(
-            "Привет! Я FitRose — твоя кокетливая фитоняшка и личный коуч. Давай подберём идеальный режим питания!\n"
+            "Привет! Я Роза — твой личный фитнес-коуч и нутрициолог. Давай подберём идеальный режим питания!\n"
             "Сколько тебе полных лет? Напиши просто цифрой."
         )
         return RegistrationState.AGE
