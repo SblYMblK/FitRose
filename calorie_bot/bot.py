@@ -78,6 +78,18 @@ ENTRY_TYPES = {
     "image": "Фото",
 }
 
+LOG_DAY_LABEL = "🍽 Заполнить день"
+FINISH_DAY_LABEL = "✅ Завершить день"
+STATS_LABEL = "📊 Мой прогресс"
+PROFILE_LABEL = "👤 Мой профиль"
+
+# Telegram может добавлять вариационный селектор (\ufe0f) или лишние пробелы,
+# поэтому шаблоны допускают оба варианта.
+LOG_DAY_PATTERN = r"(?i)^(/log_day\s*)?(🍽\ufe0f?\s*)?заполнить день$"
+FINISH_DAY_PATTERN = r"(?i)^(/finish_day\s*)?(✅\ufe0f?\s*)?завершить день$"
+STATS_PATTERN = r"(?i)^(/stats\s*)?(📊\ufe0f?\s*)?мой прогресс$"
+PROFILE_PATTERN = r"(?i)^(/profile\s*)?(👤\ufe0f?\s*)?мой профиль$"
+
 ACTIVITY_OPTIONS = {
     "sedentary": "Минимальная (сидячая работа)",
     "light": "Легкая (1-3 тренировки в неделю)",
@@ -99,9 +111,9 @@ class CalorieBot:
         self.storage = Storage(settings.database_path)
         self.main_menu = ReplyKeyboardMarkup(
             [
-                ["🍽 Заполнить день"],
-                ["✅ Завершить день"],
-                ["📊 Мой прогресс", "👤 Мой профиль"],
+                [LOG_DAY_LABEL],
+                [FINISH_DAY_LABEL],
+                [STATS_LABEL, PROFILE_LABEL],
             ],
             resize_keyboard=True,
         )
@@ -622,7 +634,7 @@ class CalorieBot:
         active_day = self.storage.get_active_day(user.telegram_id)
         if not active_day:
             await update.message.reply_text(
-                "Пока нет открытого дня. Жми кнопку «🍽 Заполнить день», и я начну вести записи прямо сейчас!",
+                f"Пока нет открытого дня. Жми кнопку «{LOG_DAY_LABEL}», и я начну вести записи прямо сейчас!",
                 reply_markup=self.main_menu,
             )
             return
@@ -880,7 +892,7 @@ class CalorieBot:
         log_handler = ConversationHandler(
             entry_points=[
                 CommandHandler("log_day", self.log_day_start),
-                MessageHandler(filters.Regex(r"^🍽 Заполнить день$"), self.log_day_start),
+                MessageHandler(filters.Regex(LOG_DAY_PATTERN), self.log_day_start),
             ],
             states={
                 LogState.CHOOSE_DAY: [
@@ -900,12 +912,12 @@ class CalorieBot:
         self.application.add_handler(registration_handler)
         self.application.add_handler(log_handler)
         self.application.add_handler(CommandHandler("finish_day", self.finish_day))
-        self.application.add_handler(MessageHandler(filters.Regex(r"^✅ Завершить день$"), self.finish_day))
+        self.application.add_handler(MessageHandler(filters.Regex(FINISH_DAY_PATTERN), self.finish_day))
         self.application.add_handler(CommandHandler("stats", self.stats))
-        self.application.add_handler(MessageHandler(filters.Regex(r"^📊 Мой прогресс$"), self.stats))
+        self.application.add_handler(MessageHandler(filters.Regex(STATS_PATTERN), self.stats))
         self.application.add_handler(CallbackQueryHandler(self.stats_callback, pattern="^stats_"))
         self.application.add_handler(CommandHandler("profile", self.profile))
-        self.application.add_handler(MessageHandler(filters.Regex(r"^👤 Мой профиль$"), self.profile))
+        self.application.add_handler(MessageHandler(filters.Regex(PROFILE_PATTERN), self.profile))
         self.application.add_error_handler(self._error_handler)
 
     async def _cancel_log(self, update: Update, context: CallbackContext) -> int:
