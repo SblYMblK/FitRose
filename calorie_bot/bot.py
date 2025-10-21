@@ -171,7 +171,7 @@ class CalorieBot:
             return ConversationHandler.END
 
         await update.message.reply_text(
-            "Привет! Я FitRose — твоя кокетливая фитоняшка и личный коуч. Давай подберём идеальный режим питания!\n"
+            "Привет! Я Роза — твой личный фитнес-коуч и нутрициолог. Давай подберём идеальный режим питания!\n"
             "Сколько тебе полных лет? Напиши просто цифрой."
         )
         return RegistrationState.AGE
