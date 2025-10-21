@@ -173,6 +173,93 @@ def analyze_meal_from_image(description: str, image_bytes: bytes) -> MealAnalysi
     return MealAnalysis.from_dict(payload)
 
 
+def refine_meal_analysis(
+    corrections: str,
+    previous_analysis: MealAnalysis,
+    *,
+    original_description: str = "",
+    image_bytes: Optional[bytes] = None,
+) -> MealAnalysis:
+    """Request an updated analysis that accounts for user corrections.
+
+    The model receives the initial description (if any), the previous JSON
+    response and the list of clarifications from the user. When a photo was
+    provided, it is reattached so the LLM sees the visual context again.
+    """
+
+    base_parts: list[str] = []
+    if original_description.strip():
+        base_parts.append(
+            "Исходное описание пользователя:\n" + original_description.strip()
+        )
+
+    previous_json = json.dumps(previous_analysis.to_dict(), ensure_ascii=False)
+    base_parts.append("Твой предыдущий ответ (JSON):\n" + previous_json)
+
+    if corrections.strip():
+        base_parts.append(
+            "Уточнения пользователя (можно учитывать по пунктам):\n" + corrections.strip()
+        )
+
+    base_parts.append(
+        (
+            "Пересчитай показатели и верни строгий JSON с полями "
+            "calories, protein, fat, carbs, notes, items. В notes сначала опиши, "
+            "что за блюдо/фото, затем добавь выводы."
+        )
+    )
+
+    user_text = "\n\n".join(base_parts)
+
+    if image_bytes is not None:
+        settings = get_settings()
+        client = OpenAI(api_key=settings.openai_api_key)
+        image_b64 = _image_to_base64(image_bytes)
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Ты — русскоязычный нутрициолог, который корректирует предыдущий "
+                        "анализ по фото. Всегда отвечай строгим JSON."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": user_text},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{image_b64}",
+                            },
+                        },
+                    ],
+                },
+            ],
+            response_format={"type": "json_object"},
+        )
+        content = response.choices[0].message.content
+        if not content:
+            raise RuntimeError("LLM returned empty content")
+        payload = json.loads(content)
+        return MealAnalysis.from_dict(payload)
+
+    payload = _chat_request(
+        [
+            {
+                "role": "system",
+                "content": (
+                    "Ты — внимательный русскоязычный нутрициолог. Отвечай только строгим JSON."
+                ),
+            },
+            {"role": "user", "content": user_text},
+        ]
+    )
+    return MealAnalysis.from_dict(payload)
+
+
 def request_day_summary(
     target: dict[str, float], actual: dict[str, float]
 ) -> dict[str, Any]:

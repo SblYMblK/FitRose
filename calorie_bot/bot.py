@@ -27,6 +27,7 @@ try:  # pragma: no cover - import fallback for running as a script
         MealAnalysis,
         analyze_meal_from_image,
         analyze_meal_from_text,
+        refine_meal_analysis,
         request_day_summary,
     )
     from .storage import Storage, User
@@ -37,6 +38,7 @@ except ImportError:  # pragma: no cover - allows "python bot.py" execution
         MealAnalysis,
         analyze_meal_from_image,
         analyze_meal_from_text,
+        refine_meal_analysis,
         request_day_summary,
     )
     from storage import Storage, User
@@ -114,6 +116,20 @@ class CalorieBot:
     # ------------------------------------------------------------------
     # Helper methods
     # ------------------------------------------------------------------
+    def _reset_entry_context(self, context: CallbackContext) -> None:
+        """Clear per-meal state before starting a new entry."""
+
+        for key in (
+            "analysis",
+            "user_input",
+            "original_description",
+            "photo_bytes",
+            "corrections",
+            "entry_type",
+            "meal_type",
+        ):
+            context.user_data.pop(key, None)
+
     def _get_user(self, telegram_id: int) -> Optional[User]:
         return self.storage.get_user(telegram_id)
 
@@ -144,7 +160,7 @@ class CalorieBot:
         user = self._get_user(telegram_id)
         if user:
             await update.message.reply_text(
-                "С возвращением! Твой нутрициолог Роза уже машет помпончиками и ждёт новых побед.\n"
+                "С возвращением! Твоя фитоняшка FitRose уже машет помпончиками и ждёт новых побед.\n"
                 "Жми кнопки ниже или используй команды:\n"
                 "• /log_day — добавить приём пищи\n"
                 "• /finish_day — завершить день\n"
@@ -372,6 +388,7 @@ class CalorieBot:
         return await self._prompt_meal_type(update.message, context)
 
     async def _prompt_meal_type(self, message, context: CallbackContext) -> LogState:
+        self._reset_entry_context(context)
         log_date: Optional[date] = context.user_data.get("log_date")
         day_label = self._format_day_label(log_date) if log_date else "выбранный день"
         keyboard = InlineKeyboardMarkup(
@@ -478,6 +495,12 @@ class CalorieBot:
 
         context.user_data["analysis"] = analysis
         context.user_data["user_input"] = description
+        context.user_data["original_description"] = description
+        context.user_data["corrections"] = []
+        if photo_bytes is not None:
+            context.user_data["photo_bytes"] = photo_bytes
+        else:
+            context.user_data.pop("photo_bytes", None)
         try:
             await waiting_message.edit_text("Готово! Лови мой разбор ниже ✨")
         except Exception:  # pragma: no cover - message might be deleted
@@ -515,8 +538,23 @@ class CalorieBot:
         waiting_message = await update.message.reply_text(
             "Секундочку, я перепроверю расчёты и всё пересчитаю заново... 💪"
         )
+        previous_analysis: Optional[MealAnalysis] = context.user_data.get("analysis")
+        original_description: str = context.user_data.get("original_description", "")
+        prior_corrections: list[str] = list(context.user_data.get("corrections", []))
+        proposed_corrections = prior_corrections + [text]
+        corrections_text = "\n".join(
+            f"- {item.strip()}" for item in proposed_corrections if item and item.strip()
+        )
         try:
-            analysis = analyze_meal_from_text(text)
+            if previous_analysis:
+                analysis = refine_meal_analysis(
+                    corrections=corrections_text or text,
+                    previous_analysis=previous_analysis,
+                    original_description=original_description,
+                    image_bytes=context.user_data.get("photo_bytes"),
+                )
+            else:
+                analysis = analyze_meal_from_text(text)
         except Exception:
             try:
                 await waiting_message.edit_text(
@@ -529,8 +567,14 @@ class CalorieBot:
             )
             return LogState.CORRECTION_TEXT
 
+        context.user_data["corrections"] = proposed_corrections
         context.user_data["analysis"] = analysis
-        context.user_data["user_input"] = text
+        combined_parts = []
+        if original_description.strip():
+            combined_parts.append(original_description.strip())
+        if corrections_text:
+            combined_parts.append("Уточнения:\n" + corrections_text)
+        context.user_data["user_input"] = "\n\n".join(combined_parts) or text
         try:
             await waiting_message.edit_text("Ура! Вот обновлённый разбор👇")
         except Exception:  # pragma: no cover - best effort
