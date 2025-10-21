@@ -97,9 +97,9 @@ class CalorieBot:
         self.storage = Storage(settings.database_path)
         self.main_menu = ReplyKeyboardMarkup(
             [
-                ["/log_day 🍽 Заполнить день"],
-                ["/finish_day ✅ Завершить день"],
-                ["/stats 📊 Мой прогресс", "/profile 👤 Мой профиль"],
+                ["🍽 Заполнить день"],
+                ["✅ Завершить день"],
+                ["📊 Мой прогресс", "👤 Мой профиль"],
             ],
             resize_keyboard=True,
         )
@@ -144,10 +144,10 @@ class CalorieBot:
         user = self._get_user(telegram_id)
         if user:
             await update.message.reply_text(
-                "Рады снова видеть вас! Ваш персональный фитнес-дневник готов к новым записям.\n"
-                "Воспользуйтесь меню ниже или командами:\n"
-                "• /log_day — добавить прием пищи\n"
-                "• /finish_day — подвести итоги дня\n"
+                "С возвращением! Твоя фитоняшка FitRose уже машет помпончиками и ждёт новых побед.\n"
+                "Жми кнопки ниже или используй команды:\n"
+                "• /log_day — добавить приём пищи\n"
+                "• /finish_day — завершить день\n"
                 "• /stats — посмотреть прогресс\n"
                 "• /profile — обновить профиль",
                 reply_markup=self.main_menu,
@@ -155,8 +155,8 @@ class CalorieBot:
             return ConversationHandler.END
 
         await update.message.reply_text(
-            "Добро пожаловать в FitRose! Давайте настроим рекомендации под вас — ответьте на несколько вопросов.\n"
-            "Сколько вам полных лет?"
+            "Привет! Я FitRose — твоя кокетливая фитоняшка и личный коуч. Давай подберём идеальный режим питания!\n"
+            "Сколько тебе полных лет? Напиши просто цифрой."
         )
         return RegistrationState.AGE
 
@@ -164,17 +164,17 @@ class CalorieBot:
         try:
             age = int(update.message.text)
         except ValueError:
-            await update.message.reply_text("Введите, пожалуйста, целое число — например, 29.")
+            await update.message.reply_text("Поймала опечатку! Напиши возраст цифрами, например 29.")
             return RegistrationState.AGE
 
         if not 0 < age <= 120:
-            await update.message.reply_text("Возраст должен быть от 1 до 120 лет. Попробуйте снова.")
+            await update.message.reply_text("Нам подойдёт возраст от 1 до 120 лет. Попробуем ещё разок?")
             return RegistrationState.AGE
 
         context.user_data["registration"] = {"age": age}
         keyboard = [["М"], ["Ж"]]
         await update.message.reply_text(
-            "Выберите пол — это поможет точнее рассчитать норму:",
+            "Выбери пол, чтобы я подогнала формулу под тебя:",
             reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True),
         )
         return RegistrationState.SEX
@@ -182,43 +182,45 @@ class CalorieBot:
     async def registration_sex(self, update: Update, context: CallbackContext) -> RegistrationState:
         sex_value = update.message.text.strip().lower()
         if sex_value not in {"м", "ж"}:
-            await update.message.reply_text("Пожалуйста, воспользуйтесь кнопками М или Ж ниже.")
+            await update.message.reply_text("Выбери вариант на клавиатуре снизу — только М или Ж, ничего лишнего 💃")
             return RegistrationState.SEX
 
         context.user_data["registration"]["sex"] = Sex.MALE if sex_value == "м" else Sex.FEMALE
-        await update.message.reply_text("Отлично! Укажите ваш рост в сантиметрах (например, 172).", reply_markup=ReplyKeyboardRemove())
+        await update.message.reply_text(
+            "Отлично! Напиши рост в сантиметрах, например 172.", reply_markup=ReplyKeyboardRemove()
+        )
         return RegistrationState.HEIGHT
 
     async def registration_height(self, update: Update, context: CallbackContext) -> RegistrationState:
         try:
             height = float(update.message.text.replace(",", "."))
         except ValueError:
-            await update.message.reply_text("Введите, пожалуйста, число — например, 175.")
+            await update.message.reply_text("Рост указываем цифрами — например, 175. Попробуй ещё раз, котик.")
             return RegistrationState.HEIGHT
 
         if not 50 <= height <= 250:
-            await update.message.reply_text("Рост должен быть в диапазоне 50–250 см. Попробуем ещё раз?")
+            await update.message.reply_text("Мне нужен рост от 50 до 250 см. Введи значение в этом диапазоне, пожалуйста.")
             return RegistrationState.HEIGHT
 
         context.user_data["registration"]["height"] = height
-        await update.message.reply_text("Спасибо! Теперь укажите вес в килограммах (например, 68.5).")
+        await update.message.reply_text("Спасибо! Теперь вес в килограммах, можно с точкой: например 68.5.")
         return RegistrationState.WEIGHT
 
     async def registration_weight(self, update: Update, context: CallbackContext) -> RegistrationState:
         try:
             weight = float(update.message.text.replace(",", "."))
         except ValueError:
-            await update.message.reply_text("Введите, пожалуйста, число — например, 70.5.")
+            await update.message.reply_text("Вес тоже пишем цифрами — например, 70.5. Попробуем ещё раз? ✨")
             return RegistrationState.WEIGHT
 
         if not 30 <= weight <= 400:
-            await update.message.reply_text("Вес должен быть в пределах 30–400 кг. Попробуйте снова.")
+            await update.message.reply_text("Чтобы расчёты были точными, введи вес от 30 до 400 кг.")
             return RegistrationState.WEIGHT
 
         context.user_data["registration"]["weight"] = weight
         keyboard = [[label] for label in ACTIVITY_OPTIONS.values()]
         await update.message.reply_text(
-            "Выберите уровень активности:",
+            "Расскажи про активность: выбери вариант, который больше всего похож на твои будни.",
             reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True),
         )
         return RegistrationState.ACTIVITY
@@ -230,12 +232,12 @@ class CalorieBot:
                 context.user_data["registration"]["activity"] = ActivityLevel(key)
                 break
         else:
-            await update.message.reply_text("Пожалуйста, воспользуйтесь вариантами на клавиатуре ниже.")
+            await update.message.reply_text("Выбираем только из кнопок внизу — ткни тот вариант, что подходит тебе больше всего.")
             return RegistrationState.ACTIVITY
 
         keyboard = [[label] for label in GOAL_OPTIONS.values()]
         await update.message.reply_text(
-            "Какая цель сейчас ближе всего?",
+            "Какая цель на сейчас? Худеем, держим форму или качаем попу? Выбирай!",
             reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True),
         )
         return RegistrationState.GOAL
@@ -247,7 +249,7 @@ class CalorieBot:
                 context.user_data["registration"]["goal"] = Goal(key)
                 break
         else:
-            await update.message.reply_text("Пожалуйста, выберите цель из предложенных кнопок.")
+            await update.message.reply_text("Ловлю неверный ввод! Выбирай цель только кнопками внизу, солнышко.")
             return RegistrationState.GOAL
 
         data = context.user_data.pop("registration")
@@ -276,7 +278,7 @@ class CalorieBot:
             self._format_user_profile(user), parse_mode=ParseMode.MARKDOWN
         )
         await update.message.reply_text(
-            "Профиль готов! Внизу — клавиатура с быстрыми действиями: добавляйте приёмы пищи, завершайте день и следите за прогрессом.",
+            "Профиль готов! Теперь кнопки внизу всегда с тобой: фиксируй приёмы, закрывай день и смотри прогресс, когда захочешь.",
             reply_markup=self.main_menu,
         )
         return ConversationHandler.END
@@ -295,11 +297,11 @@ class CalorieBot:
             context.user_data["active_day_info"] = active_day
             intro = (
                 f"Продолжаем день {self._format_day_label(active_day['day'])}! "
-                "Можно сразу добавить новый приём пищи или выбрать другую дату."
+                "Добавим ещё один вкусный приём или выберем другую дату — решать тебе."
             )
         else:
             context.user_data.pop("active_day_info", None)
-            intro = "Начинаем вести дневник питания! Выберите день, который хотите заполнить."
+            intro = "Запускаем дневничок питания! Сначала выберем день, который будем украшать твоими приёмами."
 
         await update.message.reply_text(intro, reply_markup=self.main_menu)
 
@@ -313,7 +315,10 @@ class CalorieBot:
             ]
         )
         keyboard = InlineKeyboardMarkup(buttons)
-        await update.message.reply_text("Какой день фиксируем?", reply_markup=keyboard)
+        await update.message.reply_text(
+            "Какой день будем наполнять вкусняшками? Выбирай кнопкой ниже!",
+            reply_markup=keyboard,
+        )
         return LogState.CHOOSE_DAY
 
     async def log_day_choose_day(self, update: Update, context: CallbackContext) -> LogState:
@@ -399,7 +404,7 @@ class CalorieBot:
             ]
         )
         await query.edit_message_text(
-            "Как удобнее зафиксировать приём: текстом или фото?",
+            "Как удобнее зафиксировать приём: текстом или фото? Я поддержу любой формат!",
             reply_markup=keyboard,
         )
         return LogState.CHOOSE_ENTRY_TYPE
@@ -415,12 +420,12 @@ class CalorieBot:
         context.user_data["entry_type"] = entry_type
         if entry_type == "text":
             await query.edit_message_text(
-                "Расскажите, что было в приёме пищи. Чем подробнее, тем точнее подсчёт!"
+                "Расскажи о блюде — чем больше деталей, тем точнее мой расчёт."
             )
             return LogState.ENTER_TEXT
 
         await query.edit_message_text(
-            "Пришлите фото блюда — можно добавить подпись с деталями, это поможет точности."
+            "Пришли фото блюда! Если захочешь, добавь подпись — я обожаю подробности."
         )
         return LogState.ENTER_PHOTO
 
@@ -430,7 +435,9 @@ class CalorieBot:
 
     async def log_day_receive_photo(self, update: Update, context: CallbackContext) -> LogState:
         if not update.message.photo:
-            await update.message.reply_text("Похоже, фото не загрузилось. Пришлите его ещё раз, пожалуйста.")
+            await update.message.reply_text(
+                "Не вижу фото — кажется, оно застеснялось. Пришли ещё раз, ладно? 📸"
+            )
             return LogState.ENTER_PHOTO
 
         photo = update.message.photo[-1]
@@ -448,6 +455,9 @@ class CalorieBot:
         photo_bytes: Optional[bytes],
     ) -> LogState:
         message = update.message
+        waiting_message = await message.reply_text(
+            "Секунду, расправляю реснички и подключаю нутрициологический кристалл... 💖"
+        )
         try:
             if photo_bytes:
                 analysis = analyze_meal_from_image(description, photo_bytes)
@@ -455,13 +465,23 @@ class CalorieBot:
                 analysis = analyze_meal_from_text(description)
         except Exception as exc:  # pragma: no cover - network errors
             LOGGER.exception("LLM request failed")
+            try:
+                await waiting_message.edit_text(
+                    "Ой, кажется связь шалит. Давай попробуем ещё разочек чуть позже?"
+                )
+            except Exception:  # pragma: no cover - best effort UI update
+                pass
             await message.reply_text(
-                "Сервис анализа временно недоступен. Отправьте информацию ещё раз — и мы обязательно всё посчитаем!"
+                "Мой аналитический сервер сделал глоток матча и ушёл в перерыв. Отправь данные ещё раз — я всё посчитаю!"
             )
             return LogState.ENTER_TEXT if not photo_bytes else LogState.ENTER_PHOTO
 
         context.user_data["analysis"] = analysis
         context.user_data["user_input"] = description
+        try:
+            await waiting_message.edit_text("Готово! Лови мой разбор ниже ✨")
+        except Exception:  # pragma: no cover - message might be deleted
+            pass
         await message.reply_text(self._format_analysis(analysis), parse_mode=ParseMode.MARKDOWN)
         keyboard = InlineKeyboardMarkup(
             [
@@ -479,29 +499,42 @@ class CalorieBot:
         await query.answer()
         choice = query.data
         if choice == "confirm_yes":
-            await query.edit_message_text("Сохраняю запись... ✅")
+            await query.edit_message_text("Сохраняю запись... ещё секундочка блеска! ✨")
             await self._persist_meal(context)
             await query.message.reply_text(
-                "Готово! Можно добавить следующий приём или завершить день кнопкой внизу.",
+                "Готово! Добавляй следующий приём или заверши день кнопкой снизу — я рядом.",
                 reply_markup=self.main_menu,
             )
             return await self._prompt_meal_type(query.message, context)
 
-        await query.edit_message_text("Опишите корректные данные о блюде текстом.")
+        await query.edit_message_text("Опиши блюдо так, как считаешь нужным — я пересчитаю всё заново.")
         return LogState.CORRECTION_TEXT
 
     async def log_day_correction(self, update: Update, context: CallbackContext) -> LogState:
         text = update.message.text
+        waiting_message = await update.message.reply_text(
+            "Секундочку, я перепроверю расчёты и всё пересчитаю заново... 💪"
+        )
         try:
             analysis = analyze_meal_from_text(text)
         except Exception:
+            try:
+                await waiting_message.edit_text(
+                    "Пока не получилось связаться с сервисом. Давай попробуем ещё раз."
+                )
+            except Exception:  # pragma: no cover - best effort
+                pass
             await update.message.reply_text(
-                "Пока не удалось получить ответ. Отправьте, пожалуйста, исправленный текст ещё раз."
+                "Ещё чуть-чуть терпения — пришли текст повторно, и я всё обязательно уточню."
             )
             return LogState.CORRECTION_TEXT
 
         context.user_data["analysis"] = analysis
         context.user_data["user_input"] = text
+        try:
+            await waiting_message.edit_text("Ура! Вот обновлённый разбор👇")
+        except Exception:  # pragma: no cover - best effort
+            pass
         await update.message.reply_text(self._format_analysis(analysis), parse_mode=ParseMode.MARKDOWN)
         keyboard = InlineKeyboardMarkup(
             [
@@ -545,31 +578,48 @@ class CalorieBot:
         active_day = self.storage.get_active_day(user.telegram_id)
         if not active_day:
             await update.message.reply_text(
-                "Сейчас нет открытого дня. Нажмите «/log_day 🍽 Заполнить день», чтобы начать новый.",
+                "Пока нет открытого дня. Жми кнопку «🍽 Заполнить день», и я начну вести записи прямо сейчас!",
                 reply_markup=self.main_menu,
             )
             return
 
         selected_date: date = active_day["day"]
-        await update.message.reply_text(
-            f"Подводим итоги за {selected_date.strftime('%d.%m.%Y')}...",
+        status_message = await update.message.reply_text(
+            f"Секундочку, собираю твои достижения за {selected_date.strftime('%d.%m.%Y')}...",
             reply_markup=self.main_menu,
         )
         success = await self._summarize_day(update.message, user, selected_date)
+        if not success:
+            try:
+                await status_message.edit_text(
+                    "Пока рано подводить итоги — добавь записи, и я всё красиво оформлю!"
+                )
+            except Exception:  # pragma: no cover - best effort
+                pass
+            return
+
         if success:
             self.storage.close_day(user.telegram_id, selected_date)
             context.user_data.pop("log_date", None)
             context.user_data.pop("day_log_id", None)
             context.user_data.pop("active_day_info", None)
+            try:
+                await status_message.edit_text(
+                    "Финальный аккорд сыгран! День закрыт, а я уже готовлюсь поддержать тебя завтра."
+                )
+            except Exception:  # pragma: no cover - best effort
+                pass
             await update.message.reply_text(
-                "День завершён! Отдыхайте и возвращайтесь завтра за новым прогрессом.",
+                "Готово! День завершён, расслабься и наслаждайся результатом. Я всегда рядом на клавиатуре снизу.",
                 reply_markup=self.main_menu,
             )
 
     async def _summarize_day(self, message, user: User, selected_date: date) -> bool:
         summary = self.storage.get_day_summary(user.telegram_id, selected_date)
         if not summary:
-            await message.reply_text("За этот день пока нет записей. Добавьте хотя бы один приём пищи, чтобы подвести итоги.")
+            await message.reply_text(
+                "В этот день ещё пусто. Добавь хотя бы один приём пищи — и я сразу устрою красивый отчёт!"
+            )
             return False
 
         totals = summary["totals"]
@@ -579,14 +629,27 @@ class CalorieBot:
             "fat": user.metrics.fat_target_g,
             "carbs": user.metrics.carb_target_g,
         }
+        waiting_message = await message.reply_text(
+            "Устраиваюсь поудобнее и сверяю цифры с моими глянцевыми таблицами... ✨"
+        )
         try:
             recommendations = request_day_summary(target, totals)
         except Exception:
+            try:
+                await waiting_message.edit_text(
+                    "Эх, рекомендации пока не прилетели. Давай попробуем закрыть день чуть позже."
+                )
+            except Exception:  # pragma: no cover - best effort
+                pass
             await message.reply_text(
-                "Не удалось получить рекомендации от сервиса. Попробуйте завершить день чуть позже."
+                "Мой коучинг-канал временно молчит. Давай завершим день немного позже — я уже готовлюсь!"
             )
             return False
 
+        try:
+            await waiting_message.edit_text("Готово! Смотри мои выводы ниже 💓")
+        except Exception:  # pragma: no cover - best effort
+            pass
         await message.reply_text(
             self._format_day_summary(summary, target, recommendations),
             parse_mode=ParseMode.MARKDOWN,
@@ -662,7 +725,7 @@ class CalorieBot:
             self._format_user_profile(user), parse_mode=ParseMode.MARKDOWN
         )
         await update.message.reply_text(
-            "Меню ниже поможет быстро добавить приём пищи или завершить день.",
+            "Кнопки снизу всегда открыты для тебя: фиксируй приёмы, закрывай день и смотри динамику, когда захочешь!",
             reply_markup=self.main_menu,
         )
 
@@ -672,7 +735,7 @@ class CalorieBot:
     def _format_user_profile(self, user: User) -> str:
         metrics = user.metrics
         return (
-            "✨ *Ваш персональный профиль*\n"
+            "✨ *Твой персональный профиль*\n"
             f"Возраст: {user.age} лет\n"
             f"Пол: {'М' if user.sex is Sex.MALE else 'Ж'}\n"
             f"Рост: {user.height:.0f} см\n"
@@ -683,7 +746,8 @@ class CalorieBot:
             f"Калории: {metrics.calorie_target:.0f} ккал\n"
             f"Белки: {metrics.protein_target_g:.0f} г\n"
             f"Жиры: {metrics.fat_target_g:.0f} г\n"
-            f"Углеводы: {metrics.carb_target_g:.0f} г"
+            f"Углеводы: {metrics.carb_target_g:.0f} г\n\n"
+            "Я сохраню эти параметры и буду мягко подталкивать тебя к цели 💗"
         )
 
     def _format_day_label(self, value: date) -> str:
@@ -702,15 +766,15 @@ class CalorieBot:
             ]
         )
         if not items_text:
-            items_text = "• нет деталей"
+            items_text = "• подробности пока не указаны, но я уже хочу узнать больше!"
         return (
-            "🍽 *Разбор приёма пищи*\n"
+            "🍽 *Мой разбор приёма*\n"
             f"Энергия: {analysis.calories:.0f} ккал\n"
             f"Белки: {analysis.protein:.0f} г\n"
             f"Жиры: {analysis.fat:.0f} г\n"
             f"Углеводы: {analysis.carbs:.0f} г\n"
-            f"Комментарий эксперта: {analysis.notes or '—'}\n\n"
-            f"Состав блюда:\n{items_text}"
+            f"💬 Фитоняшка шепчет: {analysis.notes or 'обожаю, когда ты делишься подробностями!'}\n\n"
+            f"🥗 Что в тарелке:\n{items_text}"
         )
 
     def _format_day_summary(self, summary: dict[str, Any], target: dict[str, float], recommendations: dict[str, Any]) -> str:
@@ -719,17 +783,19 @@ class CalorieBot:
         day_date = date.fromisoformat(summary["day"])
         day_label = self._format_day_label(day_date)
         lines = [
-            f"✨ *Итоги за {day_label}* ({day_date.strftime('%d.%m.%Y')})",
-            f"Цель: {target['calories']:.0f} ккал (Б {target['protein']:.0f} / Ж {target['fat']:.0f} / У {target['carbs']:.0f})",
-            f"Факт: {totals['calories']:.0f} ккал (Б {totals['protein']:.0f} / Ж {totals['fat']:.0f} / У {totals['carbs']:.0f})",
-            "\n🍴 *Приёмы пищи:*",
+            f"✨ *Финальный разбор за {day_label}* ({day_date.strftime('%d.%m.%Y')})",
+            f"🎯 Цель: {target['calories']:.0f} ккал (Б {target['protein']:.0f} / Ж {target['fat']:.0f} / У {target['carbs']:.0f})",
+            f"📈 Факт: {totals['calories']:.0f} ккал (Б {totals['protein']:.0f} / Ж {totals['fat']:.0f} / У {totals['carbs']:.0f})",
+            "",
+            "🍴 *Чем радовали себя:*",
         ]
         for meal in meals:
             label = MEAL_TYPES.get(meal["meal_type"], meal["meal_type"])
             lines.append(
                 f"— {label}: {meal['calories']:.0f} ккал (Б {meal['protein']:.0f} / Ж {meal['fat']:.0f} / У {meal['carbs']:.0f})"
             )
-        lines.append("\n💡 *Рекомендации коуча:*")
+        lines.append("")
+        lines.append("💡 *Советы от твоей фитоняшки:*")
 
         summary_text = recommendations.get("summary", "Нет данных")
         if isinstance(summary_text, list):
@@ -745,6 +811,8 @@ class CalorieBot:
             extra_text = str(extra).strip()
         if extra_text:
             lines.append(extra_text)
+        lines.append("")
+        lines.append("Спасибо, что доверяешь мне свои тарелочки. Завтра устроим ещё более вкусный прогресс! 💕")
         return "\n".join(lines)
 
     # ------------------------------------------------------------------
@@ -766,7 +834,10 @@ class CalorieBot:
         )
 
         log_handler = ConversationHandler(
-            entry_points=[CommandHandler("log_day", self.log_day_start)],
+            entry_points=[
+                CommandHandler("log_day", self.log_day_start),
+                MessageHandler(filters.Regex(r"^🍽 Заполнить день$"), self.log_day_start),
+            ],
             states={
                 LogState.CHOOSE_DAY: [
                     CallbackQueryHandler(self.log_day_choose_day, pattern="^day_"),
@@ -785,9 +856,12 @@ class CalorieBot:
         self.application.add_handler(registration_handler)
         self.application.add_handler(log_handler)
         self.application.add_handler(CommandHandler("finish_day", self.finish_day))
+        self.application.add_handler(MessageHandler(filters.Regex(r"^✅ Завершить день$"), self.finish_day))
         self.application.add_handler(CommandHandler("stats", self.stats))
+        self.application.add_handler(MessageHandler(filters.Regex(r"^📊 Мой прогресс$"), self.stats))
         self.application.add_handler(CallbackQueryHandler(self.stats_callback, pattern="^stats_"))
         self.application.add_handler(CommandHandler("profile", self.profile))
+        self.application.add_handler(MessageHandler(filters.Regex(r"^👤 Мой профиль$"), self.profile))
         self.application.add_error_handler(self._error_handler)
 
     async def _cancel_log(self, update: Update, context: CallbackContext) -> int:
