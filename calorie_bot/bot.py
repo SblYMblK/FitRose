@@ -908,6 +908,7 @@ class CalorieBot:
                 LogState.CORRECTION_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.log_day_correction)],
             },
             fallbacks=[CommandHandler("cancel", self._cancel_log)],
+            allow_reentry=True,
         )
 
         self.application.add_handler(registration_handler)
