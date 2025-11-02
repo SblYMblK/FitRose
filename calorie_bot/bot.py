@@ -151,6 +151,7 @@ class CalorieBot:
         settings = get_settings()
         self.storage = Storage(settings.database_path)
         self.admin_ids = set(settings.admin_ids)
+        LOGGER.info("Loaded admin IDs: %s", sorted(self.admin_ids))
         self.main_menu = ReplyKeyboardMarkup(
             [
                 [LOG_DAY_LABEL],
@@ -1024,7 +1025,7 @@ class CalorieBot:
         user = update.effective_user
         if not user:
             return
-        if self.admin_ids and user.id not in self.admin_ids:
+        if user.id not in self.admin_ids:
             if message:
                 await message.reply_text("Команда доступна только администраторам.")
             return
