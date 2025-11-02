@@ -151,6 +151,7 @@ class CalorieBot:
         settings = get_settings()
         self.storage = Storage(settings.database_path)
         self.admin_ids = set(settings.admin_ids)
+        LOGGER.info("Loaded admin IDs: %s", sorted(self.admin_ids))
         self.main_menu = ReplyKeyboardMarkup(
             [
                 [LOG_DAY_LABEL],
