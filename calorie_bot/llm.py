@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
+import time
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
 from openai import OpenAI
 
@@ -13,6 +15,9 @@ try:  # pragma: no cover - support running without package context
     from .config import get_settings
 except ImportError:  # pragma: no cover
     from config import get_settings
+
+
+LLM_LOGGER = logging.getLogger("calorie_bot.llm")
 
 
 @dataclass(slots=True)
@@ -211,6 +216,21 @@ def refine_meal_analysis(
 
     user_text = "\n\n".join(base_parts)
 
+    request_type = "image" if image_bytes is not None else "text"
+    payload_meta = {
+        "request_type": request_type,
+        "original_description_length": len(original_description or ""),
+        "corrections_length": len(corrections or ""),
+        "has_image": image_bytes is not None,
+        "items": len(previous_analysis.items),
+    }
+    started = time.perf_counter()
+    LLM_LOGGER.info(
+        (
+            "event=llm_request scope=refine_meal_analysis request_type=%s original_length=%s corrections_length=%s"
+            % (request_type, payload_meta["original_description_length"], payload_meta["corrections_length"])
+        )
+    )
     if image_bytes is not None:
         settings = get_settings()
         client = OpenAI(api_key=settings.openai_api_key)
@@ -243,19 +263,41 @@ def refine_meal_analysis(
         content = response.choices[0].message.content
         if not content:
             raise RuntimeError("LLM returned empty content")
-        payload = json.loads(content)
+        try:
+            payload = json.loads(content)
+        except Exception:
+            duration = time.perf_counter() - started
+            LLM_LOGGER.exception(
+                f"event=llm_response scope=refine_meal_analysis status=error duration={duration:.3f}s payload={payload_meta}"
+            )
+            raise
+        duration = time.perf_counter() - started
+        LLM_LOGGER.info(
+            f"event=llm_response scope=refine_meal_analysis status=success duration={duration:.3f}s"
+        )
         return MealAnalysis.from_dict(payload)
 
-    payload = _chat_request(
-        [
-            {
-                "role": "system",
-                "content": (
-                    "Ты — внимательный русскоязычный нутрициолог. Отвечай только строгим JSON."
-                ),
-            },
-            {"role": "user", "content": user_text},
-        ]
+    try:
+        payload = _chat_request(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "Ты — внимательный русскоязычный нутрициолог. Отвечай только строгим JSON."
+                    ),
+                },
+                {"role": "user", "content": user_text},
+            ]
+        )
+    except Exception:
+        duration = time.perf_counter() - started
+        LLM_LOGGER.exception(
+            f"event=llm_response scope=refine_meal_analysis status=error duration={duration:.3f}s payload={payload_meta}"
+        )
+        raise
+    duration = time.perf_counter() - started
+    LLM_LOGGER.info(
+        f"event=llm_response scope=refine_meal_analysis status=success duration={duration:.3f}s"
     )
     return MealAnalysis.from_dict(payload)
 
@@ -263,27 +305,52 @@ def refine_meal_analysis(
 def request_day_summary(
     target: dict[str, float], actual: dict[str, float]
 ) -> dict[str, Any]:
-    payload = _chat_request(
-        [
-            {
-                "role": "system",
-                "content": (
-                    "Ты — поддерживающий русскоязычный нутрициолог. Говори только по-русски и возвращай строгий JSON."
-                ),
-            },
-            {
-                "role": "user",
-                "content": SUMMARY_PROMPT.format(
-                    target_calories=target["calories"],
-                    target_protein=target["protein"],
-                    target_fat=target["fat"],
-                    target_carbs=target["carbs"],
-                    actual_calories=actual["calories"],
-                    actual_protein=actual["protein"],
-                    actual_fat=actual["fat"],
-                    actual_carbs=actual["carbs"],
-                ),
-            },
-        ]
+    payload_meta = {
+        "target": target,
+        "actual": actual,
+    }
+    started = time.perf_counter()
+    LLM_LOGGER.info(
+        (
+            "event=llm_request scope=request_day_summary target_calories=%.0f actual_calories=%.0f"
+            % (target["calories"], actual["calories"])
+        )
+    )
+    try:
+        payload = _chat_request(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "Ты — поддерживающий русскоязычный нутрициолог. Говори только по-русски и возвращай строгий JSON."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": SUMMARY_PROMPT.format(
+                        target_calories=target["calories"],
+                        target_protein=target["protein"],
+                        target_fat=target["fat"],
+                        target_carbs=target["carbs"],
+                        actual_calories=actual["calories"],
+                        actual_protein=actual["protein"],
+                        actual_fat=actual["fat"],
+                        actual_carbs=actual["carbs"],
+                    ),
+                },
+            ]
+        )
+    except Exception:
+        duration = time.perf_counter() - started
+        LLM_LOGGER.exception(
+            f"event=llm_response scope=request_day_summary status=error duration={duration:.3f}s payload={payload_meta}"
+        )
+        raise
+    duration = time.perf_counter() - started
+    LLM_LOGGER.info(
+        (
+            "event=llm_response scope=request_day_summary status=success duration=%.3fs keys=%s"
+            % (duration, sorted(payload.keys()))
+        )
     )
     return payload
