@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import time
 from datetime import date, datetime, timedelta
 from enum import Enum, auto
 from typing import Any, Optional
@@ -45,6 +47,44 @@ except ImportError:  # pragma: no cover - allows "python bot.py" execution
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+class _CommandLogFormatter(logging.Formatter):
+    """Formatter that keeps command-related metadata optional."""
+
+    def format(self, record: logging.LogRecord) -> str:  # pragma: no cover - simple accessors
+        if not hasattr(record, "user_id"):
+            record.user_id = "-"
+        if not hasattr(record, "command"):
+            record.command = "-"
+        if not hasattr(record, "update_type"):
+            record.update_type = "-"
+        return super().format(record)
+
+
+_command_logger_core = logging.getLogger("calorie_bot.commands")
+if not _command_logger_core.handlers:
+    _command_logger_core.setLevel(logging.INFO)
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(
+        _CommandLogFormatter(
+            "timestamp=%(asctime)s user_id=%(user_id)s command=%(command)s update_type=%(update_type)s %(message)s"
+        )
+    )
+    _command_logger_core.addHandler(stream_handler)
+    _command_logger_core.propagate = False
+
+
+class _CommandLoggerAdapter(logging.LoggerAdapter):
+    def process(self, msg, kwargs):  # pragma: no cover - formatting helper
+        extra = kwargs.setdefault("extra", {})
+        extra.setdefault("user_id", "-")
+        extra.setdefault("command", "-")
+        extra.setdefault("update_type", "-")
+        return msg, kwargs
+
+
+COMMAND_LOGGER = _CommandLoggerAdapter(_command_logger_core, {})
 
 
 class RegistrationState(Enum):
@@ -129,6 +169,27 @@ class CalorieBot:
     # ------------------------------------------------------------------
     # Helper methods
     # ------------------------------------------------------------------
+    def _detect_update_type(self, update: Update) -> str:
+        if update.callback_query:
+            return "callback"
+        message = update.effective_message
+        if message:
+            if getattr(message, "photo", None):
+                return "photo"
+            if getattr(message, "text", None):
+                return "text"
+        return "unknown"
+
+    def _command_extra(self, update: Update, *, command: str, **fields: Any) -> dict[str, Any]:
+        user_id = update.effective_user.id if update.effective_user else "-"
+        extra = {
+            "user_id": user_id,
+            "command": command,
+            "update_type": self._detect_update_type(update),
+        }
+        extra.update(fields)
+        return extra
+
     def _reset_entry_context(self, context: CallbackContext) -> None:
         """Clear per-meal state before starting a new entry."""
 
@@ -171,6 +232,10 @@ class CalorieBot:
     async def start(self, update: Update, context: CallbackContext) -> int:
         telegram_id = update.effective_user.id
         user = self._get_user(telegram_id)
+        COMMAND_LOGGER.info(
+            f"event=start invoked existing_profile={'yes' if user else 'no'}",
+            extra=self._command_extra(update, command="start"),
+        )
         if user:
             await update.message.reply_text(
                 "С возвращением! Роза уже машет помпончиками и ждёт твоих новых побед.\n"
@@ -322,6 +387,10 @@ class CalorieBot:
 
         context.user_data["current_user"] = user
         active_day = self.storage.get_active_day(user.telegram_id)
+        COMMAND_LOGGER.info(
+            f"event=log_day_start active_day={'yes' if active_day else 'no'}",
+            extra=self._command_extra(update, command="log_day"),
+        )
         if active_day:
             context.user_data["active_day_info"] = active_day
             intro = (
@@ -358,6 +427,10 @@ class CalorieBot:
             await query.edit_message_text("Сессия устарела. Попробуйте снова командой /log_day.")
             return ConversationHandler.END
 
+        COMMAND_LOGGER.info(
+            f"event=log_day_choose_day selection={query.data}",
+            extra=self._command_extra(update, command="log_day"),
+        )
         if query.data == "day_current":
             active_info = context.user_data.get("active_day_info")
             if not active_info:
@@ -383,6 +456,10 @@ class CalorieBot:
 
     async def log_day_receive_date(self, update: Update, context: CallbackContext) -> LogState:
         text = update.message.text.strip()
+        COMMAND_LOGGER.info(
+            f"event=log_day_receive_date input={text}",
+            extra=self._command_extra(update, command="log_day"),
+        )
         try:
             selected_date = datetime.strptime(text, "%Y-%m-%d").date()
         except ValueError:
@@ -424,6 +501,10 @@ class CalorieBot:
             await query.edit_message_text("Неизвестный тип приема пищи.")
             return ConversationHandler.END
 
+        COMMAND_LOGGER.info(
+            f"event=log_day_choose_meal meal_type={data}",
+            extra=self._command_extra(update, command="log_day"),
+        )
         context.user_data["meal_type"] = data
         keyboard = InlineKeyboardMarkup(
             [
@@ -447,6 +528,10 @@ class CalorieBot:
             await query.edit_message_text("Неизвестный тип записи.")
             return ConversationHandler.END
 
+        COMMAND_LOGGER.info(
+            f"event=log_day_entry_type entry_type={entry_type}",
+            extra=self._command_extra(update, command="log_day"),
+        )
         context.user_data["entry_type"] = entry_type
         if entry_type == "text":
             await query.edit_message_text(
@@ -461,6 +546,10 @@ class CalorieBot:
 
     async def log_day_receive_text(self, update: Update, context: CallbackContext) -> LogState:
         description = update.message.text
+        COMMAND_LOGGER.info(
+            f"event=log_day_receive_text length={len(description or '')}",
+            extra=self._command_extra(update, command="log_day"),
+        )
         return await self._handle_meal_input(update, context, description=description, photo_bytes=None)
 
     async def log_day_receive_photo(self, update: Update, context: CallbackContext) -> LogState:
@@ -474,6 +563,10 @@ class CalorieBot:
         file = await photo.get_file()
         image_bytes = await file.download_as_bytearray()
         description = update.message.caption or ""
+        COMMAND_LOGGER.info(
+            f"event=log_day_receive_photo caption_length={len(description)} bytes={len(image_bytes)}",
+            extra=self._command_extra(update, command="log_day"),
+        )
         return await self._handle_meal_input(update, context, description=description, photo_bytes=bytes(image_bytes))
 
     async def _handle_meal_input(
@@ -488,12 +581,40 @@ class CalorieBot:
         waiting_message = await message.reply_text(
             "Секунду, расправляю реснички и подключаю нутрициологический кристалл... 💖"
         )
+        description_length = len(description or "")
+        photo_size = len(photo_bytes) if photo_bytes else 0
+        request_type = "image" if photo_bytes else "text"
+        payload = {
+            "description_length": description_length,
+            "has_photo": bool(photo_bytes),
+            "photo_bytes": photo_size,
+            "meal_type": context.user_data.get("meal_type"),
+            "entry_type": context.user_data.get("entry_type"),
+        }
+        COMMAND_LOGGER.info(
+            (
+                "event=meal_analysis_request request_type=%s description_length=%s photo_bytes=%s"
+                % (request_type, description_length, photo_size)
+            ),
+            extra=self._command_extra(update, command="log_day"),
+        )
+        started = time.perf_counter()
         try:
             if photo_bytes:
                 analysis = analyze_meal_from_image(description, photo_bytes)
             else:
                 analysis = analyze_meal_from_text(description)
+            duration = time.perf_counter() - started
+            COMMAND_LOGGER.info(
+                f"event=meal_analysis_response status=success duration={duration:.3f}s",
+                extra=self._command_extra(update, command="log_day"),
+            )
         except Exception as exc:  # pragma: no cover - network errors
+            duration = time.perf_counter() - started
+            COMMAND_LOGGER.exception(
+                f"event=meal_analysis_response status=error duration={duration:.3f}s payload={payload}",
+                extra=self._command_extra(update, command="log_day"),
+            )
             LOGGER.exception("LLM request failed")
             try:
                 await waiting_message.edit_text(
@@ -534,6 +655,10 @@ class CalorieBot:
         query = update.callback_query
         await query.answer()
         choice = query.data
+        COMMAND_LOGGER.info(
+            f"event=log_day_confirm choice={choice}",
+            extra=self._command_extra(update, command="log_day"),
+        )
         if choice == "confirm_yes":
             await query.edit_message_text("Сохраняю запись... ещё секундочка блеска! ✨")
             await self._persist_meal(context)
@@ -548,6 +673,13 @@ class CalorieBot:
 
     async def log_day_correction(self, update: Update, context: CallbackContext) -> LogState:
         text = update.message.text
+        COMMAND_LOGGER.info(
+            (
+                "event=log_day_correction length=%s prior=%s"
+                % (len(text or ""), len(context.user_data.get("corrections", [])))
+            ),
+            extra=self._command_extra(update, command="log_day"),
+        )
         waiting_message = await update.message.reply_text(
             "Секундочку, я перепроверю расчёты и всё пересчитаю заново... 💪"
         )
@@ -623,6 +755,17 @@ class CalorieBot:
             llm_payload=analysis.to_dict(),
             corrected_payload=None,
         )
+        COMMAND_LOGGER.info(
+            (
+                "event=persist_meal meal_type=%s entry_type=%s calories=%.1f"
+                % (meal_type, entry_type, analysis.calories)
+            ),
+            extra={
+                "user_id": user.telegram_id,
+                "command": "log_day",
+                "update_type": "internal",
+            },
+        )
 
     # ------------------------------------------------------------------
     # Finish day
@@ -632,8 +775,16 @@ class CalorieBot:
         if not user:
             return
 
+        COMMAND_LOGGER.info(
+            "event=finish_day invoked",
+            extra=self._command_extra(update, command="finish_day"),
+        )
         active_day = self.storage.get_active_day(user.telegram_id)
         if not active_day:
+            COMMAND_LOGGER.info(
+                "event=finish_day_no_active_day",
+                extra=self._command_extra(update, command="finish_day"),
+            )
             await update.message.reply_text(
                 f"Пока нет открытого дня. Жми кнопку «{LOG_DAY_LABEL}», и я начну вести записи прямо сейчас!",
                 reply_markup=self.main_menu,
@@ -647,6 +798,10 @@ class CalorieBot:
         )
         success = await self._summarize_day(update.message, user, selected_date)
         if not success:
+            COMMAND_LOGGER.info(
+                f"event=finish_day_summary status=missing_data day={selected_date.isoformat()}",
+                extra=self._command_extra(update, command="finish_day"),
+            )
             try:
                 await status_message.edit_text(
                     "Пока рано подводить итоги — добавь записи, и я всё красиво оформлю!"
@@ -660,6 +815,10 @@ class CalorieBot:
             context.user_data.pop("log_date", None)
             context.user_data.pop("day_log_id", None)
             context.user_data.pop("active_day_info", None)
+            COMMAND_LOGGER.info(
+                f"event=finish_day_summary status=completed day={selected_date.isoformat()}",
+                extra=self._command_extra(update, command="finish_day"),
+            )
             try:
                 await status_message.edit_text(
                     "Финальный аккорд сыгран! День закрыт, а я уже готовлюсь поддержать тебя завтра."
@@ -689,9 +848,28 @@ class CalorieBot:
         waiting_message = await message.reply_text(
             "Устраиваюсь поудобнее и сверяю цифры с моими глянцевыми таблицами... ✨"
         )
+        COMMAND_LOGGER.info(
+            (
+                "event=finish_day_request_summary target_calories=%.0f actual_calories=%.0f"
+                % (target["calories"], totals["calories"])
+            ),
+            extra={
+                "user_id": user.telegram_id,
+                "command": "finish_day",
+                "update_type": "internal",
+            },
+        )
         try:
             recommendations = request_day_summary(target, totals)
         except Exception:
+            COMMAND_LOGGER.exception(
+                "event=finish_day_request_summary status=error",
+                extra={
+                    "user_id": user.telegram_id,
+                    "command": "finish_day",
+                    "update_type": "internal",
+                },
+            )
             try:
                 await waiting_message.edit_text(
                     "Эх, рекомендации пока не прилетели. Давай попробуем закрыть день чуть позже."
@@ -703,6 +881,14 @@ class CalorieBot:
             )
             return False
 
+        COMMAND_LOGGER.info(
+            "event=finish_day_request_summary status=success",
+            extra={
+                "user_id": user.telegram_id,
+                "command": "finish_day",
+                "update_type": "internal",
+            },
+        )
         try:
             await waiting_message.edit_text("Готово! Смотри мои выводы ниже 💓")
         except Exception:  # pragma: no cover - best effort
@@ -721,6 +907,10 @@ class CalorieBot:
         if not user:
             return
 
+        COMMAND_LOGGER.info(
+            "event=stats invoked",
+            extra=self._command_extra(update, command="stats"),
+        )
         keyboard = InlineKeyboardMarkup(
             [
                 [
@@ -742,6 +932,10 @@ class CalorieBot:
             await query.edit_message_text("Пользователь не найден. Используйте /start.")
             return
 
+        COMMAND_LOGGER.info(
+            f"event=stats_callback period={query.data}",
+            extra=self._command_extra(update, command="stats"),
+        )
         if query.data == "stats_week":
             end = date.today()
             start = end - timedelta(days=6)
@@ -756,6 +950,10 @@ class CalorieBot:
             await query.edit_message_text("Пока что за этот период нет записей. Загляните позже, чтобы увидеть прогресс!")
             return
 
+        COMMAND_LOGGER.info(
+            f"event=stats_callback rows={len(rows)} period={query.data}",
+            extra=self._command_extra(update, command="stats"),
+        )
         text_lines = [f"📊 Статистика за {label} ({start.isoformat()} — {end.isoformat()}):"]
         total_calories = sum(row["total_calories"] for row in rows)
         total_protein = sum(row["total_protein"] for row in rows)
@@ -778,6 +976,10 @@ class CalorieBot:
         user = self._ensure_user(update)
         if not user:
             return
+        COMMAND_LOGGER.info(
+            "event=profile invoked",
+            extra=self._command_extra(update, command="profile"),
+        )
         await update.message.reply_text(
             self._format_user_profile(user), parse_mode=ParseMode.MARKDOWN
         )
@@ -949,8 +1151,38 @@ async def _shutdown(application: Application) -> None:  # pragma: no cover - use
     await application.stop()
 
 
+def _configure_logging() -> None:
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    log_file = os.getenv("CALORIE_BOT_LOG_FILE")
+    file_path: Optional[str] = None
+    if log_file:
+        file_path = os.path.abspath(log_file)
+        handlers.append(logging.FileHandler(file_path))
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="timestamp=%(asctime)s level=%(levelname)s logger=%(name)s message=%(message)s",
+        handlers=handlers,
+    )
+
+    if file_path:
+        already_configured = any(
+            isinstance(handler, logging.FileHandler)
+            and getattr(handler, "baseFilename", None) == file_path
+            for handler in _command_logger_core.handlers
+        )
+        if not already_configured:
+            file_handler = logging.FileHandler(file_path)
+            file_handler.setFormatter(
+                _CommandLogFormatter(
+                    "timestamp=%(asctime)s user_id=%(user_id)s command=%(command)s update_type=%(update_type)s %(message)s"
+                )
+            )
+            _command_logger_core.addHandler(file_handler)
+
+
 def main() -> None:
-    logging.basicConfig(level=logging.INFO)
+    _configure_logging()
     bot = CalorieBot()
     bot.run()
 
