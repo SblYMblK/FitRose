@@ -1024,7 +1024,7 @@ class CalorieBot:
         user = update.effective_user
         if not user:
             return
-        if self.admin_ids and user.id not in self.admin_ids:
+        if user.id not in self.admin_ids:
             if message:
                 await message.reply_text("Команда доступна только администраторам.")
             return
