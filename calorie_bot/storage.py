@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Optional
 
@@ -68,6 +69,17 @@ CREATE TABLE IF NOT EXISTS meals (
 );
 """
 
+CREATE_EVENTS = """
+CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    telegram_id INTEGER NOT NULL,
+    event_type TEXT NOT NULL,
+    payload TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (telegram_id) REFERENCES users(telegram_id)
+);
+"""
+
 
 @dataclass(slots=True)
 class User:
@@ -88,7 +100,7 @@ class Storage:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
-            conn.executescript("\n".join([CREATE_USERS, CREATE_DAY_LOGS, CREATE_MEALS]))
+            conn.executescript("\n".join([CREATE_USERS, CREATE_DAY_LOGS, CREATE_MEALS, CREATE_EVENTS]))
             self._ensure_day_status_column(conn)
 
     @contextmanager
@@ -105,6 +117,120 @@ class Storage:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(day_logs)")}
         if "status" not in columns:
             conn.execute("ALTER TABLE day_logs ADD COLUMN status TEXT NOT NULL DEFAULT 'closed'")
+
+    def _as_datetime(self, value: date | datetime, *, end: bool = False) -> datetime:
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, date):
+            return datetime.combine(value, time.max if end else time.min)
+        raise TypeError(f"Unsupported date value: {value!r}")
+
+    def log_event(self, telegram_id: int, event_type: str, payload: Optional[dict[str, Any]] = None) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO events (telegram_id, event_type, payload) VALUES (?, ?, ?)",
+                (telegram_id, event_type, json.dumps(payload) if payload is not None else None),
+            )
+
+    def count_events(
+        self,
+        event_type: Optional[str] = None,
+        *,
+        start: Optional[date | datetime] = None,
+        end: Optional[date | datetime] = None,
+    ) -> int:
+        query = "SELECT COUNT(*) FROM events WHERE 1=1"
+        params: list[Any] = []
+        if event_type:
+            query += " AND event_type=?"
+            params.append(event_type)
+        if start:
+            query += " AND datetime(created_at) >= datetime(?)"
+            params.append(self._as_datetime(start).isoformat())
+        if end:
+            query += " AND datetime(created_at) <= datetime(?)"
+            params.append(self._as_datetime(end, end=True).isoformat())
+        with self._connect() as conn:
+            row = conn.execute(query, params).fetchone()
+            return int(row[0]) if row else 0
+
+    def active_users_between(
+        self,
+        start: date | datetime,
+        end: date | datetime,
+    ) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(DISTINCT telegram_id)
+                FROM events
+                WHERE datetime(created_at) BETWEEN datetime(?) AND datetime(?)
+                """,
+                (self._as_datetime(start).isoformat(), self._as_datetime(end, end=True).isoformat()),
+            ).fetchone()
+            return int(row[0]) if row else 0
+
+    def _iter_meal_event_payloads(
+        self,
+        *,
+        start: Optional[date | datetime] = None,
+        end: Optional[date | datetime] = None,
+    ) -> Iterator[dict[str, Any]]:
+        query = "SELECT payload FROM events WHERE event_type='meal_logged'"
+        params: list[Any] = []
+        if start:
+            query += " AND datetime(created_at) >= datetime(?)"
+            params.append(self._as_datetime(start).isoformat())
+        if end:
+            query += " AND datetime(created_at) <= datetime(?)"
+            params.append(self._as_datetime(end, end=True).isoformat())
+        with self._connect() as conn:
+            for row in conn.execute(query, params):
+                payload_raw = row["payload"] if isinstance(row, sqlite3.Row) else row[0]
+                if not payload_raw:
+                    yield {}
+                    continue
+                try:
+                    yield json.loads(payload_raw)
+                except json.JSONDecodeError:
+                    yield {}
+
+    def meals_by_type(
+        self,
+        *,
+        start: Optional[date | datetime] = None,
+        end: Optional[date | datetime] = None,
+    ) -> dict[str, int]:
+        counter: Counter[str] = Counter()
+        for payload in self._iter_meal_event_payloads(start=start, end=end):
+            meal_type = payload.get("meal_type", "unknown")
+            counter[str(meal_type)] += 1
+        return dict(counter)
+
+    def meal_event_stats(
+        self,
+        *,
+        start: Optional[date | datetime] = None,
+        end: Optional[date | datetime] = None,
+    ) -> dict[str, Any]:
+        totals = {
+            "total": 0,
+            "corrected": 0,
+            "by_entry_type": Counter(),
+        }
+        for payload in self._iter_meal_event_payloads(start=start, end=end):
+            totals["total"] += 1
+            entry_type = str(payload.get("entry_type", "unknown"))
+            totals["by_entry_type"][entry_type] += 1
+            corrected_value = payload.get("corrected")
+            if isinstance(corrected_value, str):
+                corrected = corrected_value.lower() in {"1", "true", "yes"}
+            else:
+                corrected = bool(corrected_value)
+            if corrected:
+                totals["corrected"] += 1
+        totals["by_entry_type"] = dict(totals["by_entry_type"])
+        return totals
 
     def get_user(self, telegram_id: int) -> Optional[User]:
         with self._connect() as conn:

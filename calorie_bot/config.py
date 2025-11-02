@@ -19,6 +19,7 @@ class Settings:
     telegram_token: str
     openai_api_key: str
     database_path: str = "calorie_bot.db"
+    admin_ids: tuple[int, ...] = ()
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -31,7 +32,18 @@ class Settings:
             raise RuntimeError("OPENAI_API_KEY environment variable is required")
 
         db_path = os.getenv("CALORIE_BOT_DB", "calorie_bot.db")
-        return cls(telegram_token=token, openai_api_key=openai_key, database_path=db_path)
+        admin_raw = os.getenv("CALORIE_BOT_ADMINS", "")
+        admin_ids = tuple(
+            int(item.strip())
+            for item in admin_raw.split(",")
+            if item.strip()
+        )
+        return cls(
+            telegram_token=token,
+            openai_api_key=openai_key,
+            database_path=db_path,
+            admin_ids=admin_ids,
+        )
 
 
 settings: Optional[Settings] = None

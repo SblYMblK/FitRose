@@ -150,6 +150,7 @@ class CalorieBot:
     def __init__(self) -> None:
         settings = get_settings()
         self.storage = Storage(settings.database_path)
+        self.admin_ids = set(settings.admin_ids)
         self.main_menu = ReplyKeyboardMarkup(
             [
                 [LOG_DAY_LABEL],
@@ -367,6 +368,14 @@ class CalorieBot:
             metrics=metrics,
         )
         self.storage.upsert_user(user)
+        self.storage.log_event(
+            telegram_id,
+            "registration_completed",
+            {
+                "goal": user.goal.value,
+                "activity": user.activity.value,
+            },
+        )
 
         await update.message.reply_text(
             self._format_user_profile(user), parse_mode=ParseMode.MARKDOWN
@@ -578,6 +587,7 @@ class CalorieBot:
         photo_bytes: Optional[bytes],
     ) -> LogState:
         message = update.message
+        user: Optional[User] = context.user_data.get("current_user")
         waiting_message = await message.reply_text(
             "Секунду, расправляю реснички и подключаю нутрициологический кристалл... 💖"
         )
@@ -625,6 +635,17 @@ class CalorieBot:
             await message.reply_text(
                 "Мой аналитический сервер сделал глоток матча и ушёл в перерыв. Отправь данные ещё раз — я всё посчитаю!"
             )
+            if user:
+                self.storage.log_event(
+                    user.telegram_id,
+                    "llm_error",
+                    {
+                        "stage": "meal_analysis",
+                        "entry_type": context.user_data.get("entry_type", "text"),
+                        "used_photo": bool(photo_bytes),
+                        "error": str(exc),
+                    },
+                )
             return LogState.ENTER_TEXT if not photo_bytes else LogState.ENTER_PHOTO
 
         context.user_data["analysis"] = analysis
@@ -683,6 +704,7 @@ class CalorieBot:
         waiting_message = await update.message.reply_text(
             "Секундочку, я перепроверю расчёты и всё пересчитаю заново... 💪"
         )
+        user: Optional[User] = context.user_data.get("current_user")
         previous_analysis: Optional[MealAnalysis] = context.user_data.get("analysis")
         original_description: str = context.user_data.get("original_description", "")
         prior_corrections: list[str] = list(context.user_data.get("corrections", []))
@@ -710,6 +732,15 @@ class CalorieBot:
             await update.message.reply_text(
                 "Ещё чуть-чуть терпения — пришли текст повторно, и я всё обязательно уточню."
             )
+            if user:
+                self.storage.log_event(
+                    user.telegram_id,
+                    "llm_error",
+                    {
+                        "stage": "meal_correction",
+                        "entry_type": context.user_data.get("entry_type", "text"),
+                    },
+                )
             return LogState.CORRECTION_TEXT
 
         context.user_data["corrections"] = proposed_corrections
@@ -734,6 +765,16 @@ class CalorieBot:
             ]
         )
         await update.message.reply_text("Подтвердите расчёт или внесите правки:", reply_markup=keyboard)
+        if user:
+            self.storage.log_event(
+                user.telegram_id,
+                "analysis_corrected",
+                {
+                    "corrections": len(proposed_corrections),
+                    "meal_type": context.user_data.get("meal_type"),
+                    "entry_type": context.user_data.get("entry_type"),
+                },
+            )
         return LogState.CONFIRM
 
     async def _persist_meal(self, context: CallbackContext) -> None:
@@ -747,7 +788,7 @@ class CalorieBot:
         day_log_id = context.user_data.get("day_log_id")
         if not day_log_id:
             day_log_id = self._set_active_log(user, context, log_date)
-        self.storage.add_meal_entry(
+        meal_id = self.storage.add_meal_entry(
             day_log_id=day_log_id,
             meal_type=meal_type,
             entry_type=entry_type,
@@ -755,15 +796,15 @@ class CalorieBot:
             llm_payload=analysis.to_dict(),
             corrected_payload=None,
         )
-        COMMAND_LOGGER.info(
-            (
-                "event=persist_meal meal_type=%s entry_type=%s calories=%.1f"
-                % (meal_type, entry_type, analysis.calories)
-            ),
-            extra={
-                "user_id": user.telegram_id,
-                "command": "log_day",
-                "update_type": "internal",
+        self.storage.log_event(
+            user.telegram_id,
+            "meal_logged",
+            {
+                "meal_id": meal_id,
+                "day": log_date.isoformat(),
+                "meal_type": meal_type,
+                "entry_type": entry_type,
+                "corrected": bool(context.user_data.get("corrections")),
             },
         )
 
@@ -815,9 +856,10 @@ class CalorieBot:
             context.user_data.pop("log_date", None)
             context.user_data.pop("day_log_id", None)
             context.user_data.pop("active_day_info", None)
-            COMMAND_LOGGER.info(
-                f"event=finish_day_summary status=completed day={selected_date.isoformat()}",
-                extra=self._command_extra(update, command="finish_day"),
+            self.storage.log_event(
+                user.telegram_id,
+                "day_finished",
+                {"day": selected_date.isoformat()},
             )
             try:
                 await status_message.edit_text(
@@ -878,6 +920,14 @@ class CalorieBot:
                 pass
             await message.reply_text(
                 "Мой коучинг-канал временно молчит. Давай завершим день немного позже — я уже готовлюсь!"
+            )
+            self.storage.log_event(
+                user.telegram_id,
+                "llm_error",
+                {
+                    "stage": "day_summary",
+                    "day": selected_date.isoformat(),
+                },
             )
             return False
 
@@ -968,6 +1018,82 @@ class CalorieBot:
             )
 
         await query.edit_message_text("\n".join(text_lines))
+
+    async def admin_stats(self, update: Update, context: CallbackContext) -> None:
+        message = update.effective_message
+        user = update.effective_user
+        if not user:
+            return
+        if self.admin_ids and user.id not in self.admin_ids:
+            if message:
+                await message.reply_text("Команда доступна только администраторам.")
+            return
+
+        today = date.today()
+        week_start = today - timedelta(days=6)
+
+        dau = self.storage.active_users_between(today, today)
+        wau = self.storage.active_users_between(week_start, today)
+
+        meals_today = self.storage.meal_event_stats(start=today, end=today)
+        meals_week = self.storage.meal_event_stats(start=week_start, end=today)
+        meals_by_type = self.storage.meals_by_type(start=week_start, end=today)
+
+        total_week = meals_week.get("total", 0)
+        photo_week = meals_week.get("by_entry_type", {}).get("image", 0)
+        corrections_week = meals_week.get("corrected", 0)
+
+        avg_meals_day = meals_today.get("total", 0) / dau if dau else 0.0
+        avg_meals_week = total_week / wau if wau else 0.0
+        photo_share = photo_week / total_week if total_week else 0.0
+        correction_share = corrections_week / total_week if total_week else 0.0
+
+        llm_errors_week = self.storage.count_events("llm_error", start=week_start, end=today)
+        registrations_week = self.storage.count_events("registration_completed", start=week_start, end=today)
+        finished_days_week = self.storage.count_events("day_finished", start=week_start, end=today)
+
+        type_parts = []
+        for meal_type, count in sorted(meals_by_type.items()):
+            label = MEAL_TYPES.get(meal_type, meal_type)
+            type_parts.append(f"{label} — {count}")
+        type_summary = ", ".join(type_parts)
+
+        lines = [
+            f"📊 *Админ-метрики на {today.strftime('%d.%m.%Y')}*",
+            "",
+            "*Активность*",
+            f"• DAU: {dau}",
+            f"• WAU: {wau}",
+            "",
+            "*Приёмы пищи*",
+            f"• Сегодня: {meals_today.get('total', 0)} (ср. на пользователя {avg_meals_day:.2f})",
+            f"• Неделя: {total_week} (ср. на пользователя {avg_meals_week:.2f})",
+            f"• Фото: {photo_week} ({photo_share:.0%})",
+            f"• Коррекции: {corrections_week} ({correction_share:.0%})",
+        ]
+        if type_summary:
+            lines.append(f"• По типам: {type_summary}")
+        lines.extend(
+            [
+                "",
+                "*Воронка*",
+                f"• Регистрации: {registrations_week}",
+                f"• Закрыто дней: {finished_days_week}",
+                f"• Ошибки LLM: {llm_errors_week}",
+            ]
+        )
+
+        if message:
+            await message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+        self.storage.log_event(
+            user.id,
+            "admin_stats_viewed",
+            {
+                "dau": dau,
+                "wau": wau,
+                "period": "7d",
+            },
+        )
 
     # ------------------------------------------------------------------
     # Profile
@@ -1122,6 +1248,7 @@ class CalorieBot:
         self.application.add_handler(CallbackQueryHandler(self.stats_callback, pattern="^stats_"))
         self.application.add_handler(CommandHandler("profile", self.profile))
         self.application.add_handler(MessageHandler(filters.Regex(PROFILE_PATTERN), self.profile))
+        self.application.add_handler(CommandHandler("admin_stats", self.admin_stats))
         self.application.add_error_handler(self._error_handler)
 
     async def _cancel_log(self, update: Update, context: CallbackContext) -> int:
